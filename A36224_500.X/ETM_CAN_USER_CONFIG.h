@@ -11,11 +11,7 @@
 #define __USE_CAN_2
 #define __A36224_500
 #define ETM_CAN_MY_ADDRESS                  ETM_CAN_ADDR_HEATER_MAGNET_BOARD
-
-
-#define ETM_CAN_FAULT_MASK                 0b0001111111111111  // These are faults that are active on this board
-#define ETM_CAN_INHIBIT_MASK               0b0000000100000100  // These are the inhibit bits that are active on this board
-
+#define PIN_CAN_OPERATION_LED               _LATC4
 
 
 /*
@@ -32,7 +28,7 @@
 
 */
 
-
+// DPARKER USE FCY_CLK to pick this
 #define ETM_CAN_CXCFG1_VALUE                CXCFG1_10MHZ_FCY_VALUE
 
 #define ETM_CAN_INTERRUPT_PRIORITY          4

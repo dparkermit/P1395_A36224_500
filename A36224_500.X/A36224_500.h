@@ -6,8 +6,8 @@
 #include <adc12.h>
 #include <timer.h>
 
-#include "ETM_CAN_USER_CONFIG.h"
-
+#include "ETM_CAN_PUBLIC.h"
+#include "ETM_ANALOG.h"
 
 
 
@@ -228,18 +228,15 @@ typedef struct {
   // all currents are scaled to 1mA per lsb
   // all voltages are scaled to 1mV per lsb
 
-  unsigned int magnet_current_set_point;
-  unsigned int heater_current_set_point;
+  AnalogInput analog_input_heater_voltage;
+  AnalogInput analog_input_heater_current;
 
-  unsigned int magnet_current_dac_reading;
-  unsigned int magnet_voltage_dac_reading;
-  unsigned int heater_current_dac_reading;
-  unsigned int heater_voltage_dac_reading;
+  AnalogInput analog_input_electromagnet_voltage;
+  AnalogInput analog_input_electromagnet_current;
 
-  unsigned long magnet_current_dac_accumulator;
-  unsigned long magnet_voltage_dac_accumulator;
-  unsigned long heater_current_dac_accumulator;;
-  unsigned long heater_voltage_dac_accumulator;;
+  AnalogOutput analog_output_heater_current;
+  AnalogOutput analog_output_electromagnet_current;
+
   unsigned int  accumulator_counter;
 
   unsigned int  adc_ignore_current_sample;

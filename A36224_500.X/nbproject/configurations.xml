@@ -13,6 +13,7 @@
       <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/ETM_SPI.h</itemPath>
       <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/MCP4822.h</itemPath>
       <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/ETM_SCALE.h</itemPath>
+      <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/ETM_ANALOG.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -29,6 +30,7 @@
       <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/ETM_CAN_UTILITY.s</itemPath>
       <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/ETM_IO_PORTS.s</itemPath>
       <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/ETM_SCALE.s</itemPath>
+      <itemPath>C:/Users/dparker/Documents/GitHub/P1395_A36224_500/A36224_500.X/ETM_ANALOG.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"

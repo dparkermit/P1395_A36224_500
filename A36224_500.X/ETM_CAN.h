@@ -259,12 +259,6 @@ void ETMCanResetFaults(void);
 void ETMCanLogData(unsigned int packet_id, unsigned int word3, unsigned int word2, unsigned int word1, unsigned int word0);
 void ETMCanExecuteCMDBoardSpecific(ETMCanMessage* message_ptr);
 void ETMCanReturnValueBoardSpecific(ETMCanMessage* message_ptr);
-
-void ETMCanLogCustomPacketC(void);
-void ETMCanLogCustomPacketD(void);
-void ETMCanLogCustomPacketE(void);
-void ETMCanLogCustomPacketF(void);
-
 #endif
 
 //------------------------------- Specific Board and Command Defines -------------------------- // 

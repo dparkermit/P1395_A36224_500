@@ -1,107 +1,5 @@
 #include "A36224_500.h"
-#include "ETM_CAN_PUBLIC.h"
 #include "MCP4822.h"
-#include "ETM_SCALE.h"
-
-
-
-
-void Do10msTicToc(void);
-
-
-
-
-
-typedef struct {
-  unsigned int filtered_adc_reading;
-  unsigned int reading_scaled_and_calibrated;
-
-  // -------- These are used to calibrate and scale the ADC Reading to Engineering Units ---------
-  unsigned int fixed_scale;
-  signed int   fixed_offset;
-  unsigned int calibration_internal_scale;
-  signed int   calibration_internal_offset;
-  unsigned int calibration_external_scale;
-  signed int   calibration_external_offset;
-
-
-  // --------  These are used for fault detection ------------------ 
-  unsigned int over_trip_point_absolute;          // If the value exceeds this it will trip immediatly
-  unsigned int under_trip_point_absolute;         // If the value is less than this it will trip immediatly
-  unsigned int target_value;                      // This is the target value (probably set point) in engineering units
-  unsigned int relative_trip_point_scale;         // This will be something like 5%, 10%, ect
-  unsigned int relative_trip_point_floor;         // If target_value * relative_trip_point_floor is less than the floor value, the floor value will be used instead
-  unsigned int relative_over_trip_point;          // This is = [target_value + target_value*relative_trip_point_scale] or [target_value + relative_over_trip_point] 
-  unsigned int relative_under_trip_point;         // This is = [target_value - target_value*relative_trip_point_scale] or [target_value - relative_over_trip_point] 
-  unsigned int over_trip_counter;                 // This counts the number of samples over the relative_over_trip_point (will decrement each sample over test is false)
-  unsigned int under_trip_counter;                // This counts the number of samples under the relative_under_trip_point (will decrement each sample under test is false)
-
-} AnalogInput;
-
-
-
-typedef struct {
-  unsigned int set_point;
-  unsigned int dac_setting_scaled_and_calibrated;
-
-  // -------- These are used to calibrate and scale the ADC Reading to Engineering Units ---------
-  unsigned int fixed_scale;
-  signed int   fixed_offset;
-  unsigned int calibration_internal_scale;
-  signed int   calibration_internal_offset;
-  unsigned int calibration_external_scale;
-  signed int   calibration_external_offset;
-
-} AnalogOutput;
-
-
-
-void ETMScaleCalibrateDACSetting(AnalogOutput* ptr_analog_output);
-void ETMScaleCalibrateADCReading(AnalogInput* ptr_analog_input);
-
-void ETMScaleCalibrateDACSetting(AnalogOutput* ptr_analog_output) {
-  unsigned int temp;
-  // Convert from engineering units to the DAC scale
-  temp = ETMScaleFactor16(ptr_analog_output->set_point, ptr_analog_output->fixed_scale, ptr_analog_output->fixed_offset);
-  
-  // Calibrate for known gain/offset errors of this board
-  temp = ETMScaleFactor2(temp, ptr_analog_output->calibration_internal_scale, ptr_analog_output->calibration_internal_offset);
-
-  // Calibrate the DAC output for known gain/offset errors of the external circuitry
-  temp = ETMScaleFactor2(temp, ptr_analog_output->calibration_external_scale, ptr_analog_output->calibration_external_offset);
-  
-  ptr_analog_output->dac_setting_scaled_and_calibrated = temp;
-}
-
-void ETMScaleCalibrateADCReading(AnalogInput* ptr_analog_input) {
-  unsigned int temp;
-  // Calibrate the adc reading based on the known gain/offset errors of the external circuitry
-  temp = ETMScaleFactor16(ptr_analog_input->filtered_adc_reading, ptr_analog_input->calibration_external_scale, ptr_analog_input->calibration_external_offset);
-
-  // Calibrate the adc reading based on the known gain/offset errors of this board
-  temp = ETMScaleFactor2(temp, ptr_analog_input->calibration_internal_scale, ptr_analog_input->calibration_internal_offset);
-  
-  // Scale the analog input to engineering units based on the fixed scale (and offset but normally not required) for this application
-  temp = ETMScaleFactor16(temp, ptr_analog_input->fixed_scale, ptr_analog_input->fixed_offset);
-
-  ptr_analog_input->reading_scaled_and_calibrated = temp;
-}
-
- 
-AnalogInput analog_input_heater_voltage;
-AnalogInput analog_input_heater_current;
-
-AnalogInput analog_input_electromagnet_voltage;
-AnalogInput analog_input_electromagnet_current;
-
-AnalogOutput analog_output_heater_current;
-AnalogOutput analog_output_electromagnet_current;
-
-
-
-HeaterMagnetControlData global_data_A36224_500;
-
-// This is firmware for the HV Lambda Board
 
 _FOSC(ECIO & CSW_FSCM_OFF); 
 _FWDT(WDT_ON & WDTPSA_64 & WDTPSB_8);  // 1 Second watchdog timer 
@@ -112,60 +10,151 @@ _FGS(CODE_PROT_OFF);
 _FICD(PGD);
 
 
-void InitializeA36224(void);
 
+void DisableHeaterMagnetOutputs(void);
+void EnableHeaterMagnetOutputs(void);
+
+void SetBit(unsigned int* int_ptr, unsigned int bit_mask);
+void ClearBit(unsigned int* int_ptr, unsigned int bit_mask);
+unsigned int CheckBit(unsigned int data, unsigned int bit_mask);
+
+
+
+void InitializeA36224(void);
+void Do10msTicToc(void);
+void DoStateMachine(void);
 
 MCP4822 U42_MCP4822;
 MCP4822 U44_MCP4822;
 
+HeaterMagnetControlData global_data_A36224_500;
+
+unsigned int led_divider;
+
+
+unsigned int control_state;
+
+#define STATE_STARTUP                0x10
+#define STATE_WAITING_FOR_CONFIG     0x20
+#define STATE_STANDBY                0x30
+#define STATE_OPERATE                0x40
+#define STATE_FAULT                  0x50
 
 int main(void) {
-  InitializeA36224();
-
-  __delay32(1000000);
-  ClrWdt();
-
-  PIN_LED_I2_D = 1;
-  __delay32(1000000);
-  ClrWdt();
-  
-  PIN_LED_I2_C = 1;
-  __delay32(1000000);
-  ClrWdt();
-
-  PIN_LED_I2_B = 1;
-  __delay32(1000000);
-  ClrWdt();
-
-  PIN_LED_I2_A = 1;
-  __delay32(1000000);
-  ClrWdt();
-  
-  PIN_LED_FLOW = 1;
-  __delay32(1000000);
-  ClrWdt();
-
-  PIN_LED_COM = 1;
-  __delay32(1000000);
-  ClrWdt();
-
-  PIN_LED_WATCHDOG = 1;
-  __delay32(1000000);
-  ClrWdt();
-
-
   while (1) {
-    ETMCanDoCan();
-    // This Manages all the Can related functions, it should be called every time through the control loop
-    // It calls ETMCanProcessMessage, All of the timed data transmits, Processes log data, ect
-    
-    Do10msTicToc();      
-
+    DoStateMachine();
   }
 }
 
 
-unsigned int led_divider;
+
+void SetBit(unsigned int* int_ptr, unsigned int bit_mask) {
+  *int_ptr = *int_ptr | bit_mask;
+}
+
+void ClearBit(unsigned int* int_ptr, unsigned int bit_mask) {
+  *int_ptr = *int_ptr & (~bit_mask);
+}
+
+unsigned int CheckBit(unsigned int data, unsigned int bit_mask) {
+  return (data & bit_mask);
+}
+
+
+void DisableHeaterMagnetOutputs(void) {
+
+}
+
+
+void EnableHeaterMagnetOutputs(void) {
+
+}
+
+void DoStateMachine(void) {
+
+  switch (control_state) {
+    
+  case STATE_STARTUP:
+    InitializeA36224();
+    control_state = STATE_WAITING_FOR_CONFIG;
+    break;
+    
+  case STATE_WAITING_FOR_CONFIG:
+    SetBit(&etm_can_status_register.status_word_0, ETM_CAN_STATUS_WORD_0_BOARD_WAITING_INITIAL_CONFIG);
+    SetBit(&etm_can_status_register.status_word_0, ETM_CAN_STATUS_WORD_0_USER_DEFINED_8);
+    DisableHeaterMagnetOutputs();
+    while (control_state == STATE_WAITING_FOR_CONFIG) {
+      Do10msTicToc();
+      ETMCanDoCan();
+      
+      if (!CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_BOARD_WAITING_INITIAL_CONFIG)) {
+	control_state = STATE_STANDBY;
+      }
+      
+      if (CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+	control_state = STATE_FAULT;
+      }
+    }
+    break;
+
+  case STATE_STANDBY:
+    DisableHeaterMagnetOutputs();
+    while (control_state == STATE_STANDBY) {
+      Do10msTicToc();
+      ETMCanDoCan();
+      
+      if (!CheckBit(etm_can_status_register.status_word_0,STATUS_SOFTWARE_DISABLE)) {
+	control_state = STATE_OPERATE;
+      }
+      
+      if (CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+	control_state = STATE_FAULT;
+      }
+    }
+    break;
+
+  case STATE_OPERATE:
+    EnableHeaterMagnetOutputs();
+    while (control_state == STATE_OPERATE) {
+      Do10msTicToc();
+      ETMCanDoCan();
+
+      if (CheckBit(etm_can_status_register.status_word_0,STATUS_SOFTWARE_DISABLE)) {
+	control_state = STATE_STANDBY;
+      }
+      
+      if (CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+	control_state = STATE_FAULT;
+      }
+    }
+    break;
+
+
+  case STATE_FAULT:
+    DisableHeaterMagnetOutputs();
+    while (control_state == STATE_FAULT) {
+      Do10msTicToc();
+      ETMCanDoCan();
+      if (!CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+	// The faults have been cleared
+	control_state = STATE_WAITING_FOR_CONFIG;
+      }
+    }
+    break;
+    
+    
+  default:
+    control_state = STATE_FAULT;
+    break;
+
+    
+  }
+  
+
+  
+}
+
+
 
 void Do10msTicToc(void) {   // DPARKER need beter name
   if (_T5IF) {
@@ -176,7 +165,7 @@ void Do10msTicToc(void) {   // DPARKER need beter name
     
     // Look for faults
     
-    // Set DAC outputs
+
     
     
     // Flash the operate LED
@@ -190,21 +179,28 @@ void Do10msTicToc(void) {   // DPARKER need beter name
       }
     }
 
-    
-    analog_output_heater_current.set_point = global_data_A36224_500.heater_current_set_point;
-    ETMScaleCalibrateDACSetting(&analog_output_heater_current);
-    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_A_4096, analog_output_heater_current.dac_setting_scaled_and_calibrated>>4);
-    
-    analog_output_electromagnet_current.set_point = global_data_A36224_500.magnet_current_set_point;
-    if (analog_output_electromagnet_current.set_point >= 10000) {
-      analog_output_electromagnet_current.set_point = 0;
+    // Flash the Refresh
+    if (PIN_D_OUT_REFRESH) {
+      PIN_D_OUT_REFRESH = 0;
+    } else {
+      PIN_D_OUT_REFRESH = 1;
     }
-    ETMScaleCalibrateDACSetting(&analog_output_electromagnet_current);
-    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_B_4096, analog_output_electromagnet_current.dac_setting_scaled_and_calibrated>>4);
+
+    // Set DAC outputs    
+    ETMScaleCalibrateDACSetting(&global_data_A36224_500.analog_output_heater_current);
+    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_A_4096, global_data_A36224_500.analog_output_heater_current.dac_setting_scaled_and_calibrated>>4);
     
+    ETMScaleCalibrateDACSetting(&global_data_A36224_500.analog_output_electromagnet_current);
+    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_B_4096, global_data_A36224_500.analog_output_electromagnet_current.dac_setting_scaled_and_calibrated>>4);
+
+    if (etm_can_status_register.status_word_0 & 0x0003) {
+      // The board is faulted or inhibiting the system
+      PIN_LED_I2_C = 0;
+    } else {
+      PIN_LED_I2_C = 1;
+    }
     
   }
-
 }
 
 void InitializeA36224(void) {
@@ -213,66 +209,72 @@ void InitializeA36224(void) {
   // Dparker need to read from EEPROM
   
 
-  analog_output_electromagnet_current.fixed_scale                     = MACRO_DEC_TO_SCALE_FACTOR_16(1.6);
-  analog_output_electromagnet_current.fixed_offset                    = 0;
-  analog_output_electromagnet_current.calibration_internal_scale      = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_output_electromagnet_current.calibration_internal_offset     = 0;
-  analog_output_electromagnet_current.calibration_external_scale      = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_output_electromagnet_current.calibration_external_offset     = 0;
+  global_data_A36224_500.analog_output_electromagnet_current.fixed_scale                     = MACRO_DEC_TO_SCALE_FACTOR_16(1.6);
+  global_data_A36224_500.analog_output_electromagnet_current.fixed_offset                    = 0;
+  global_data_A36224_500.analog_output_electromagnet_current.calibration_internal_scale      = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_output_electromagnet_current.calibration_internal_offset     = 0;
+  global_data_A36224_500.analog_output_electromagnet_current.calibration_external_scale      = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_output_electromagnet_current.calibration_external_offset     = 0;
 
-  analog_output_heater_current.fixed_scale                            = MACRO_DEC_TO_SCALE_FACTOR_16(1.6);
-  analog_output_heater_current.fixed_offset                           = 0;
-  analog_output_heater_current.calibration_internal_scale             = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_output_heater_current.calibration_internal_offset            = 0;
-  analog_output_heater_current.calibration_external_scale             = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_output_heater_current.calibration_external_offset            = 0;
+  global_data_A36224_500.analog_output_heater_current.fixed_scale                            = MACRO_DEC_TO_SCALE_FACTOR_16(1.6);
+  global_data_A36224_500.analog_output_heater_current.fixed_offset                           = 0;
+  global_data_A36224_500.analog_output_heater_current.calibration_internal_scale             = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_output_heater_current.calibration_internal_offset            = 0;
+  global_data_A36224_500.analog_output_heater_current.calibration_external_scale             = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_output_heater_current.calibration_external_offset            = 0;
 
-  analog_input_electromagnet_current.fixed_scale                      = MACRO_DEC_TO_SCALE_FACTOR_16(1.3107);
-  analog_input_electromagnet_current.fixed_offset                     = 0;
-  analog_input_electromagnet_current.calibration_internal_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_electromagnet_current.calibration_internal_offset      = 0;
-  analog_input_electromagnet_current.calibration_external_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_electromagnet_current.calibration_external_offset      = 0;
+  global_data_A36224_500.analog_input_electromagnet_current.fixed_scale                      = MACRO_DEC_TO_SCALE_FACTOR_16(1.3107);
+  global_data_A36224_500.analog_input_electromagnet_current.fixed_offset                     = 0;
+  global_data_A36224_500.analog_input_electromagnet_current.calibration_internal_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_electromagnet_current.calibration_internal_offset      = 0;
+  global_data_A36224_500.analog_input_electromagnet_current.calibration_external_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_electromagnet_current.calibration_external_offset      = 0;
 
-  analog_input_heater_current.fixed_scale                             = MACRO_DEC_TO_SCALE_FACTOR_16(1.3107);
-  analog_input_heater_current.fixed_offset                            = 0;
-  analog_input_heater_current.calibration_internal_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_heater_current.calibration_internal_offset             = 0;
-  analog_input_heater_current.calibration_external_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_heater_current.calibration_external_offset             = 0;
+  global_data_A36224_500.analog_input_heater_current.fixed_scale                             = MACRO_DEC_TO_SCALE_FACTOR_16(1.3107);
+  global_data_A36224_500.analog_input_heater_current.fixed_offset                            = 0;
+  global_data_A36224_500.analog_input_heater_current.calibration_internal_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_heater_current.calibration_internal_offset             = 0;
+  global_data_A36224_500.analog_input_heater_current.calibration_external_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_heater_current.calibration_external_offset             = 0;
 
 
-  analog_input_electromagnet_voltage.fixed_scale                      = MACRO_DEC_TO_SCALE_FACTOR_16(2.6085);
-  analog_input_electromagnet_voltage.fixed_offset                     = 0;
-  analog_input_electromagnet_voltage.calibration_internal_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_electromagnet_voltage.calibration_internal_offset      = 0;
-  analog_input_electromagnet_voltage.calibration_external_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_electromagnet_voltage.calibration_external_offset      = 0;
+  global_data_A36224_500.analog_input_electromagnet_voltage.fixed_scale                      = MACRO_DEC_TO_SCALE_FACTOR_16(2.6085);
+  global_data_A36224_500.analog_input_electromagnet_voltage.fixed_offset                     = 0;
+  global_data_A36224_500.analog_input_electromagnet_voltage.calibration_internal_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_electromagnet_voltage.calibration_internal_offset      = 0;
+  global_data_A36224_500.analog_input_electromagnet_voltage.calibration_external_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_electromagnet_voltage.calibration_external_offset      = 0;
 
-  analog_input_heater_voltage.fixed_scale                             = MACRO_DEC_TO_SCALE_FACTOR_16(2.6085);
-  analog_input_heater_voltage.fixed_offset                            = 0;
-  analog_input_heater_voltage.calibration_internal_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_heater_voltage.calibration_internal_offset             = 0;
-  analog_input_heater_voltage.calibration_external_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
-  analog_input_heater_voltage.calibration_external_offset             = 0;
+  global_data_A36224_500.analog_input_heater_voltage.fixed_scale                             = MACRO_DEC_TO_SCALE_FACTOR_16(2.6085);
+  global_data_A36224_500.analog_input_heater_voltage.fixed_offset                            = 0;
+  global_data_A36224_500.analog_input_heater_voltage.calibration_internal_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_heater_voltage.calibration_internal_offset             = 0;
+  global_data_A36224_500.analog_input_heater_voltage.calibration_external_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
+  global_data_A36224_500.analog_input_heater_voltage.calibration_external_offset             = 0;
     
   etm_can_status_register.status_word_0 = 0x0000;
   etm_can_status_register.status_word_1 = 0x0000;
   etm_can_status_register.data_word_A = 0x0000;
   etm_can_status_register.data_word_B = 0x0000; 
+  etm_can_status_register.status_word_0_inhbit_mask = 0b0000000100000100;
+  etm_can_status_register.status_word_1_fault_mask  = 0b0001111111111111;
 
-  global_data_A36224_500.magnet_current_set_point = 4000;  // DPARKER change back to zero
-  global_data_A36224_500.heater_current_set_point = 4000;  // DPARKER change back to zero 
-  global_data_A36224_500.magnet_current_dac_reading = 0;
-  global_data_A36224_500.magnet_voltage_dac_reading = 0;
-  global_data_A36224_500.heater_current_dac_reading = 0;
-  global_data_A36224_500.heater_voltage_dac_reading = 0;
-  global_data_A36224_500.magnet_current_dac_accumulator = 0;
-  global_data_A36224_500.magnet_voltage_dac_accumulator = 0;
-  global_data_A36224_500.heater_current_dac_accumulator = 0;
-  global_data_A36224_500.heater_voltage_dac_accumulator = 0;
+
+  global_data_A36224_500.analog_output_electromagnet_current.set_point = 0;
+  global_data_A36224_500.analog_output_heater_current.set_point = 0;
+
+  global_data_A36224_500.analog_input_electromagnet_current.adc_accumulator = 0;
+  global_data_A36224_500.analog_input_electromagnet_current.filtered_adc_reading = 0;
+  global_data_A36224_500.analog_input_electromagnet_voltage.adc_accumulator = 0;
+  global_data_A36224_500.analog_input_electromagnet_voltage.filtered_adc_reading = 0;
+  global_data_A36224_500.analog_input_heater_current.adc_accumulator = 0;
+  global_data_A36224_500.analog_input_heater_current.filtered_adc_reading = 0;
+  global_data_A36224_500.analog_input_heater_voltage.adc_accumulator = 0;
+  global_data_A36224_500.analog_input_heater_voltage.filtered_adc_reading = 0;
+
   global_data_A36224_500.accumulator_counter = 0;
   
+
 
   // Configure Inhibit Interrupt
   _INT3IP = 7; // This must be the highest priority interrupt
@@ -348,12 +350,40 @@ void InitializeA36224(void) {
   // Initialize the CAN module
   ETMCanInitialize();
 
+
+  // Flash LEDs at boot up
+  __delay32(1000000);
+  ClrWdt();
+  PIN_LED_I2_D = 1;
+
+  __delay32(1000000);
+  ClrWdt();
+  PIN_LED_I2_C = 1;
+
+  __delay32(1000000);
+  ClrWdt();
+  PIN_LED_I2_B = 1;
+
+  __delay32(1000000);
+  ClrWdt();
+  PIN_LED_I2_A = 1;
+
+  __delay32(1000000);
+  ClrWdt();
+  PIN_LED_FLOW = 1;
+
+  __delay32(1000000);
+  ClrWdt();
+  PIN_LED_COM = 1;
+
+  __delay32(1000000);
+  ClrWdt();
+  PIN_LED_WATCHDOG = 1;
 }
 
 
 
 void __attribute__((interrupt, no_auto_psv)) _ADCInterrupt(void) {
-  
   _ADIF = 0;
   
   if (global_data_A36224_500.adc_ignore_current_sample) {
@@ -363,37 +393,37 @@ void __attribute__((interrupt, no_auto_psv)) _ADCInterrupt(void) {
     // Copy Data From Buffer to RAM
     if (_BUFS) {
       // read ADCBUF 0-7
-      global_data_A36224_500.magnet_current_dac_accumulator += ADCBUF0 + ADCBUF4;
-      global_data_A36224_500.magnet_voltage_dac_accumulator += ADCBUF1 + ADCBUF5;
-      global_data_A36224_500.heater_current_dac_accumulator += ADCBUF2 + ADCBUF6;
-      global_data_A36224_500.heater_voltage_dac_accumulator += ADCBUF3 + ADCBUF7;
+      global_data_A36224_500.analog_input_electromagnet_current.adc_accumulator += ADCBUF0 + ADCBUF4;
+      global_data_A36224_500.analog_input_electromagnet_voltage.adc_accumulator += ADCBUF1 + ADCBUF5;
+      global_data_A36224_500.analog_input_heater_current.adc_accumulator        += ADCBUF2 + ADCBUF6;
+      global_data_A36224_500.analog_input_heater_voltage.adc_accumulator        += ADCBUF3 + ADCBUF7;
     } else {
       // read ADCBUF 8-15
-      global_data_A36224_500.magnet_current_dac_accumulator += ADCBUF8 + ADCBUFC;
-      global_data_A36224_500.magnet_voltage_dac_accumulator += ADCBUF9 + ADCBUFD;
-      global_data_A36224_500.heater_current_dac_accumulator += ADCBUFA + ADCBUFE;
-      global_data_A36224_500.heater_voltage_dac_accumulator += ADCBUFB + ADCBUFF;
+      global_data_A36224_500.analog_input_electromagnet_current.adc_accumulator += ADCBUF8 + ADCBUFC;
+      global_data_A36224_500.analog_input_electromagnet_voltage.adc_accumulator += ADCBUF9 + ADCBUFD;
+      global_data_A36224_500.analog_input_heater_current.adc_accumulator        += ADCBUFA + ADCBUFE;
+      global_data_A36224_500.analog_input_heater_voltage.adc_accumulator        += ADCBUFB + ADCBUFF;
     }
     
     global_data_A36224_500.accumulator_counter += 2;
     
     if (global_data_A36224_500.accumulator_counter >= 256) {
 
-      global_data_A36224_500.magnet_current_dac_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
-      global_data_A36224_500.magnet_current_dac_reading = global_data_A36224_500.magnet_current_dac_accumulator;
-      global_data_A36224_500.magnet_current_dac_accumulator = 0;
+      global_data_A36224_500.analog_input_electromagnet_current.adc_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
+      global_data_A36224_500.analog_input_electromagnet_current.filtered_adc_reading = global_data_A36224_500.analog_input_electromagnet_current.adc_accumulator;
+      global_data_A36224_500.analog_input_electromagnet_current.adc_accumulator = 0;
 
-      global_data_A36224_500.magnet_voltage_dac_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
-      global_data_A36224_500.magnet_voltage_dac_reading = global_data_A36224_500.magnet_voltage_dac_accumulator;
-      global_data_A36224_500.magnet_voltage_dac_accumulator = 0;
+      global_data_A36224_500.analog_input_electromagnet_voltage.adc_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
+      global_data_A36224_500.analog_input_electromagnet_voltage.filtered_adc_reading = global_data_A36224_500.analog_input_electromagnet_voltage.adc_accumulator;
+      global_data_A36224_500.analog_input_electromagnet_voltage.adc_accumulator = 0;
 
-      global_data_A36224_500.heater_current_dac_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
-      global_data_A36224_500.heater_current_dac_reading = global_data_A36224_500.heater_current_dac_accumulator;
-      global_data_A36224_500.heater_current_dac_accumulator = 0;
+      global_data_A36224_500.analog_input_heater_current.adc_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
+      global_data_A36224_500.analog_input_heater_current.filtered_adc_reading = global_data_A36224_500.analog_input_heater_current.adc_accumulator;
+      global_data_A36224_500.analog_input_heater_current.adc_accumulator = 0;
 
-      global_data_A36224_500.heater_voltage_dac_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
-      global_data_A36224_500.heater_voltage_dac_reading = global_data_A36224_500.heater_voltage_dac_accumulator;
-      global_data_A36224_500.heater_voltage_dac_accumulator = 0;
+      global_data_A36224_500.analog_input_heater_voltage.adc_accumulator >>= 4;  // This is now a 16 bit number average of previous 256 samples 
+      global_data_A36224_500.analog_input_heater_voltage.filtered_adc_reading = global_data_A36224_500.analog_input_heater_voltage.adc_accumulator;
+      global_data_A36224_500.analog_input_heater_voltage.adc_accumulator = 0;
 
       global_data_A36224_500.accumulator_counter = 0;
     }
