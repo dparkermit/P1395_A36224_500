@@ -80,18 +80,18 @@ void DoStateMachine(void) {
     break;
     
   case STATE_WAITING_FOR_CONFIG:
-    SetBit(&etm_can_status_register.status_word_0, ETM_CAN_STATUS_WORD_0_BOARD_WAITING_INITIAL_CONFIG);
-    SetBit(&etm_can_status_register.status_word_0, ETM_CAN_STATUS_WORD_0_USER_DEFINED_8);
+    SetBit(&etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG);
+    SetBit(&etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE);
     DisableHeaterMagnetOutputs();
     while (control_state == STATE_WAITING_FOR_CONFIG) {
       Do10msTicToc();
       ETMCanDoCan();
       
-      if (!CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_BOARD_WAITING_INITIAL_CONFIG)) {
+      if (!CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG)) {
 	control_state = STATE_STANDBY;
       }
       
-      if (CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	control_state = STATE_FAULT;
       }
     }
@@ -103,11 +103,11 @@ void DoStateMachine(void) {
       Do10msTicToc();
       ETMCanDoCan();
       
-      if (!CheckBit(etm_can_status_register.status_word_0,STATUS_SOFTWARE_DISABLE)) {
+      if (!CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
 	control_state = STATE_OPERATE;
       }
       
-      if (CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	control_state = STATE_FAULT;
       }
     }
@@ -119,11 +119,11 @@ void DoStateMachine(void) {
       Do10msTicToc();
       ETMCanDoCan();
 
-      if (CheckBit(etm_can_status_register.status_word_0,STATUS_SOFTWARE_DISABLE)) {
+      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
 	control_state = STATE_STANDBY;
       }
       
-      if (CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	control_state = STATE_FAULT;
       }
     }
@@ -135,7 +135,7 @@ void DoStateMachine(void) {
     while (control_state == STATE_FAULT) {
       Do10msTicToc();
       ETMCanDoCan();
-      if (!CheckBit(etm_can_status_register.status_word_0,ETM_CAN_STATUS_WORD_0_SUM_FAULT)) {
+      if (!CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	// The faults have been cleared
 	control_state = STATE_WAITING_FOR_CONFIG;
       }

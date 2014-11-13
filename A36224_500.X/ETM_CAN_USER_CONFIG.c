@@ -52,11 +52,11 @@ void ETMCanExecuteCMDBoardSpecific(ETMCanMessage* message_ptr) {
       */
 #ifdef __A36224_500
     case ETM_CAN_REGISTER_HEATER_MAGNET_CMD_OUTPUT_ENABLE:
-      etm_can_status_register.status_word_0 &= ~STATUS_SOFTWARE_DISABLE;  // Clear the software disable bit 
+      etm_can_status_register.status_word_0 &= ~STATUS_BIT_SOFTWARE_DISABLE;  // Clear the software disable bit 
     break;
     
     case ETM_CAN_REGISTER_HEATER_MAGNET_CMD_OUTPUT_DISABLE:
-      etm_can_status_register.status_word_0 |= STATUS_SOFTWARE_DISABLE; // Set the software disable bit
+      etm_can_status_register.status_word_0 |= STATUS_BIT_SOFTWARE_DISABLE; // Set the software disable bit
     break;
 #endif
     
