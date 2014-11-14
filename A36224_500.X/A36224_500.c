@@ -14,14 +14,11 @@ _FICD(PGD);
 void DisableHeaterMagnetOutputs(void);
 void EnableHeaterMagnetOutputs(void);
 
-void SetBit(unsigned int* int_ptr, unsigned int bit_mask);
-void ClearBit(unsigned int* int_ptr, unsigned int bit_mask);
-unsigned int CheckBit(unsigned int data, unsigned int bit_mask);
 
 
 
 void InitializeA36224(void);
-void Do10msTicToc(void);
+void DoA36225_500(void);
 void DoStateMachine(void);
 
 MCP4822 U42_MCP4822;
@@ -41,6 +38,7 @@ unsigned int control_state;
 #define STATE_FAULT                  0x50
 
 int main(void) {
+  control_state = STATE_STARTUP;
   while (1) {
     DoStateMachine();
   }
@@ -48,27 +46,7 @@ int main(void) {
 
 
 
-void SetBit(unsigned int* int_ptr, unsigned int bit_mask) {
-  *int_ptr = *int_ptr | bit_mask;
-}
 
-void ClearBit(unsigned int* int_ptr, unsigned int bit_mask) {
-  *int_ptr = *int_ptr & (~bit_mask);
-}
-
-unsigned int CheckBit(unsigned int data, unsigned int bit_mask) {
-  return (data & bit_mask);
-}
-
-
-void DisableHeaterMagnetOutputs(void) {
-
-}
-
-
-void EnableHeaterMagnetOutputs(void) {
-
-}
 
 void DoStateMachine(void) {
 
@@ -80,18 +58,18 @@ void DoStateMachine(void) {
     break;
     
   case STATE_WAITING_FOR_CONFIG:
-    SetBit(&etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG);
-    SetBit(&etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE);
+    ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG);
+    ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE);
     DisableHeaterMagnetOutputs();
     while (control_state == STATE_WAITING_FOR_CONFIG) {
-      Do10msTicToc();
+      DoA36225_500();
       ETMCanDoCan();
       
-      if (!CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG)) {
+      if (!ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG)) {
 	control_state = STATE_STANDBY;
       }
       
-      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
+      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	control_state = STATE_FAULT;
       }
     }
@@ -100,14 +78,14 @@ void DoStateMachine(void) {
   case STATE_STANDBY:
     DisableHeaterMagnetOutputs();
     while (control_state == STATE_STANDBY) {
-      Do10msTicToc();
+      DoA36225_500();
       ETMCanDoCan();
       
-      if (!CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
+      if (!ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
 	control_state = STATE_OPERATE;
       }
       
-      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
+      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	control_state = STATE_FAULT;
       }
     }
@@ -116,14 +94,14 @@ void DoStateMachine(void) {
   case STATE_OPERATE:
     EnableHeaterMagnetOutputs();
     while (control_state == STATE_OPERATE) {
-      Do10msTicToc();
+      DoA36225_500();
       ETMCanDoCan();
 
-      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
+      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
 	control_state = STATE_STANDBY;
       }
       
-      if (CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
+      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	control_state = STATE_FAULT;
       }
     }
@@ -133,9 +111,9 @@ void DoStateMachine(void) {
   case STATE_FAULT:
     DisableHeaterMagnetOutputs();
     while (control_state == STATE_FAULT) {
-      Do10msTicToc();
+      DoA36225_500();
       ETMCanDoCan();
-      if (!CheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
+      if (!ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
 	// The faults have been cleared
 	control_state = STATE_WAITING_FOR_CONFIG;
       }
@@ -155,18 +133,44 @@ void DoStateMachine(void) {
 }
 
 
+void DisableHeaterMagnetOutputs(void) {
+  global_data_A36224_500.analog_output_heater_current.enabled = 0;
+  global_data_A36224_500.analog_output_electromagnet_current.enabled = 0;
+  
+  PIN_D_OUT_2_ELECTROMAGNET_ENABLE = !OLL_ENABLE_SUPPLY;
+  PIN_D_OUT_3_HEATER_ENABLE = !OLL_ENABLE_SUPPLY;
 
-void Do10msTicToc(void) {   // DPARKER need beter name
+  PIN_D_OUT_1_OUTPUT_RELAY = !OLL_CLOSE_RELAY;
+}
+
+
+void EnableHeaterMagnetOutputs(void) {
+  global_data_A36224_500.analog_output_heater_current.enabled = 1;
+  global_data_A36224_500.analog_output_electromagnet_current.enabled = 1;
+  
+  PIN_D_OUT_2_ELECTROMAGNET_ENABLE = OLL_ENABLE_SUPPLY;
+  PIN_D_OUT_3_HEATER_ENABLE = OLL_ENABLE_SUPPLY;
+
+  PIN_D_OUT_1_OUTPUT_RELAY = OLL_CLOSE_RELAY;
+}
+
+
+
+void DoA36225_500(void) {
+
+  // Check the status of these pins every time through the loop
+  if (PIN_D_IN_4_HEATER_OVER_VOLT_STATUS == ILL_HEATER_OV) {
+    ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HW_HEATER_OVER_VOLTAGE);
+  }
+  
+  // Check the status of these pins every time through the loop
+  if (PIN_D_IN_5_TEMPERATURE_STATUS == ILL_TEMP_SWITCH_FAULT) {
+    ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HW_TEMPERATURE_SWITCH);
+  }
+
   if (_T5IF) {
-    // 10ms Timer has expired
+    // 10ms Timer has expired so this code will executre once every 10ms
     _T5IF = 0;
-       
-    // Do Math on ADC inputs
-    
-    // Look for faults
-    
-
-    
     
     // Flash the operate LED
     led_divider++;
@@ -179,27 +183,103 @@ void Do10msTicToc(void) {   // DPARKER need beter name
       }
     }
 
-    // Flash the Refresh
-    if (PIN_D_OUT_REFRESH) {
-      PIN_D_OUT_REFRESH = 0;
-    } else {
-      PIN_D_OUT_REFRESH = 1;
-    }
-
-    // Set DAC outputs    
-    ETMScaleCalibrateDACSetting(&global_data_A36224_500.analog_output_heater_current);
-    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_A_4096, global_data_A36224_500.analog_output_heater_current.dac_setting_scaled_and_calibrated>>4);
-    
-    ETMScaleCalibrateDACSetting(&global_data_A36224_500.analog_output_electromagnet_current);
-    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_B_4096, global_data_A36224_500.analog_output_electromagnet_current.dac_setting_scaled_and_calibrated>>4);
-
+    // Set the fault LED
     if (etm_can_status_register.status_word_0 & 0x0003) {
       // The board is faulted or inhibiting the system
       PIN_LED_I2_C = 0;
     } else {
       PIN_LED_I2_C = 1;
     }
+
+    // Update the digital input status pins
+    if (PIN_D_IN_0_ELECTROMAGENT_STATUS == ILL_POWER_SUPPLY_DISABLED) {
+      ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_ELECTROMAGNET_STATUS);
+    } else {
+      ETMCanClearBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_ELECTROMAGNET_STATUS);
+    }
     
+    if (PIN_D_IN_1_HEATER_STATUS == ILL_POWER_SUPPLY_DISABLED) {
+      ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_HEATER_STATUS);
+    } else {
+      ETMCanClearBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_HEATER_STATUS);
+    }
+    
+    if (PIN_D_IN_3_RELAY_STATUS == ILL_RELAY_OPEN) {
+      ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_RELAY_STATUS);
+    } else {
+      ETMCanClearBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_RELAY_STATUS);
+    }
+    
+    // Flash the Refresh
+    if (PIN_D_OUT_REFRESH) {
+      PIN_D_OUT_REFRESH = 0;
+    } else {
+      PIN_D_OUT_REFRESH = 1;
+    }
+    
+    // Do Math on ADC inputs
+    // Scale the ADC readings to engineering units
+    ETMAnalogScaleCalibrateADCReading(&global_data_A36224_500.analog_input_electromagnet_current);
+    ETMAnalogScaleCalibrateADCReading(&global_data_A36224_500.analog_input_electromagnet_voltage);
+    ETMAnalogScaleCalibrateADCReading(&global_data_A36224_500.analog_input_heater_current);
+    ETMAnalogScaleCalibrateADCReading(&global_data_A36224_500.analog_input_heater_voltage);
+    
+#define NOMINAL_ELECTROMAGNET_RESISTANCE            1.00
+#define NOMINAL_HEATER_RESISTANCE                   1.00    
+
+    // Check for analog Faults
+    global_data_A36224_500.analog_input_electromagnet_current.target_value = global_data_A36224_500.analog_output_electromagnet_current.set_point;
+    global_data_A36224_500.analog_input_electromagnet_voltage.target_value = ETMScaleFactor16(global_data_A36224_500.analog_output_electromagnet_current.set_point,MACRO_DEC_TO_SCALE_FACTOR_16(NOMINAL_ELECTROMAGNET_RESISTANCE),0);
+    global_data_A36224_500.analog_input_heater_current.target_value = global_data_A36224_500.analog_output_heater_current.set_point;
+    global_data_A36224_500.analog_input_heater_voltage.target_value = ETMScaleFactor16(global_data_A36224_500.analog_output_heater_current.set_point,MACRO_DEC_TO_SCALE_FACTOR_16(NOMINAL_HEATER_RESISTANCE),0);
+
+
+    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_heater_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_OVER_CUR_ABSOLUTE);
+    }
+    if (ETMAnalogCheckUnderAbsolute(&global_data_A36224_500.analog_input_heater_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_UNDER_CUR_ABSOLUTE);
+    }
+    if (ETMAnalogCheckOverRelative(&global_data_A36224_500.analog_input_heater_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_OVER_CUR_RELATIVE);
+    }
+    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_heater_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_UNDER_CUR_RELATIVE);
+    }
+    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_heater_voltage)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_OVER_VOL_ABSOLUTE);
+    }
+    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_heater_voltage)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_UNDER_VOL_RELATIVE);
+    }
+    
+    
+    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_electromagnet_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_OVER_CUR_ABSOLUTE);
+    }
+    if (ETMAnalogCheckUnderAbsolute(&global_data_A36224_500.analog_input_electromagnet_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_UNDER_CUR_ABSOLUTE);
+    }
+    if (ETMAnalogCheckOverRelative(&global_data_A36224_500.analog_input_electromagnet_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_OVER_CUR_RELATIVE); 
+    }
+    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_electromagnet_current)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_UNDER_CUR_RELATIVE); 
+    }
+    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_electromagnet_voltage)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_OVER_VOL_ABSOLUTE); 
+    }
+    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_electromagnet_voltage)) {
+      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_UNDER_VOL_RELATIVE);
+    }
+    
+    // Set DAC outputs
+    ETMAnalogScaleCalibrateDACSetting(&global_data_A36224_500.analog_output_heater_current);
+    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_A_4096, global_data_A36224_500.analog_output_heater_current.dac_setting_scaled_and_calibrated>>4);
+    
+    ETMAnalogScaleCalibrateDACSetting(&global_data_A36224_500.analog_output_electromagnet_current);
+    WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_B_4096, global_data_A36224_500.analog_output_electromagnet_current.dac_setting_scaled_and_calibrated>>4);
+
   }
 }
 
@@ -223,6 +303,12 @@ void InitializeA36224(void) {
   global_data_A36224_500.analog_output_heater_current.calibration_external_scale             = MACRO_DEC_TO_CAL_FACTOR_2(1);
   global_data_A36224_500.analog_output_heater_current.calibration_external_offset            = 0;
 
+
+
+
+
+
+
   global_data_A36224_500.analog_input_electromagnet_current.fixed_scale                      = MACRO_DEC_TO_SCALE_FACTOR_16(1.3107);
   global_data_A36224_500.analog_input_electromagnet_current.fixed_offset                     = 0;
   global_data_A36224_500.analog_input_electromagnet_current.calibration_internal_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
@@ -230,13 +316,20 @@ void InitializeA36224(void) {
   global_data_A36224_500.analog_input_electromagnet_current.calibration_external_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
   global_data_A36224_500.analog_input_electromagnet_current.calibration_external_offset      = 0;
 
+  global_data_A36224_500.analog_input_electromagnet_current.over_trip_point_absolute         = 25000; //25 Amps
+  global_data_A36224_500.analog_input_electromagnet_current.under_trip_point_absolute        = 0;     //0 Amps
+  global_data_A36224_500.analog_input_electromagnet_current.relative_trip_point_scale        = MACRO_DEC_TO_CAL_FACTOR_2(0);  
+  global_data_A36224_500.analog_input_electromagnet_current.relative_trip_point_floor        = 2000; 
+  global_data_A36224_500.analog_input_electromagnet_current.relative_counter_fault_limit     = 30;    // Test occurs at 10mS per test
+
+
   global_data_A36224_500.analog_input_heater_current.fixed_scale                             = MACRO_DEC_TO_SCALE_FACTOR_16(1.3107);
   global_data_A36224_500.analog_input_heater_current.fixed_offset                            = 0;
   global_data_A36224_500.analog_input_heater_current.calibration_internal_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
   global_data_A36224_500.analog_input_heater_current.calibration_internal_offset             = 0;
   global_data_A36224_500.analog_input_heater_current.calibration_external_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
   global_data_A36224_500.analog_input_heater_current.calibration_external_offset             = 0;
-
+  // DPARKER add the trip points settings for all of the analog inputs
 
   global_data_A36224_500.analog_input_electromagnet_voltage.fixed_scale                      = MACRO_DEC_TO_SCALE_FACTOR_16(2.6085);
   global_data_A36224_500.analog_input_electromagnet_voltage.fixed_offset                     = 0;
@@ -245,19 +338,21 @@ void InitializeA36224(void) {
   global_data_A36224_500.analog_input_electromagnet_voltage.calibration_external_scale       = MACRO_DEC_TO_CAL_FACTOR_2(1);
   global_data_A36224_500.analog_input_electromagnet_voltage.calibration_external_offset      = 0;
 
+
   global_data_A36224_500.analog_input_heater_voltage.fixed_scale                             = MACRO_DEC_TO_SCALE_FACTOR_16(2.6085);
   global_data_A36224_500.analog_input_heater_voltage.fixed_offset                            = 0;
   global_data_A36224_500.analog_input_heater_voltage.calibration_internal_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
   global_data_A36224_500.analog_input_heater_voltage.calibration_internal_offset             = 0;
   global_data_A36224_500.analog_input_heater_voltage.calibration_external_scale              = MACRO_DEC_TO_CAL_FACTOR_2(1);
   global_data_A36224_500.analog_input_heater_voltage.calibration_external_offset             = 0;
+
     
   etm_can_status_register.status_word_0 = 0x0000;
   etm_can_status_register.status_word_1 = 0x0000;
   etm_can_status_register.data_word_A = 0x0000;
   etm_can_status_register.data_word_B = 0x0000; 
-  etm_can_status_register.status_word_0_inhbit_mask = 0b0000000100000100;
-  etm_can_status_register.status_word_1_fault_mask  = 0b0001111111111111;
+  etm_can_status_register.status_word_0_inhbit_mask = 0b0000000100000100;  // DPARKER move this to #define somewhere
+  etm_can_status_register.status_word_1_fault_mask  = 0b0001111111111111;  // DParker move this to #define somewhere
 
 
   global_data_A36224_500.analog_output_electromagnet_current.set_point = 0;

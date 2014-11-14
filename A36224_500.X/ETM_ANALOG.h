@@ -39,10 +39,10 @@ typedef struct {
   unsigned int target_value;                      // This is the target value (probably set point) in engineering units
   unsigned int relative_trip_point_scale;         // This will be something like 5%, 10%, ect
   unsigned int relative_trip_point_floor;         // If target_value * relative_trip_point_floor is less than the floor value, the floor value will be used instead
-  unsigned int relative_over_trip_point;          // This is = [target_value + target_value*relative_trip_point_scale] or [target_value + relative_over_trip_point] 
-  unsigned int relative_under_trip_point;         // This is = [target_value - target_value*relative_trip_point_scale] or [target_value - relative_over_trip_point] 
+                                                  // Trip Points = target_value +/- GreaterOf [(target_value*relative_trip_point_scale) OR (relative_trip_point_floor)] 
   unsigned int over_trip_counter;                 // This counts the number of samples over the relative_over_trip_point (will decrement each sample over test is false)
   unsigned int under_trip_counter;                // This counts the number of samples under the relative_under_trip_point (will decrement each sample under test is false)
+  unsigned int relative_counter_fault_limit;      // The over / under trip counter must reach this value to generate a fault
 
 } AnalogInput;
 
@@ -51,6 +51,11 @@ typedef struct {
 typedef struct {
   unsigned int set_point;
   unsigned int dac_setting_scaled_and_calibrated;
+  unsigned int enabled;
+
+  unsigned int max_set_point;
+  unsigned int min_set_point;
+  unsigned int disabled_dac_set_point;
 
   // -------- These are used to calibrate and scale the ADC Reading to Engineering Units ---------
   unsigned int fixed_scale;
@@ -66,10 +71,16 @@ typedef struct {
 } AnalogOutput;
 
 
-void ETMScaleCalibrateDACSetting(AnalogOutput* ptr_analog_output);
-void ETMScaleCalibrateADCReading(AnalogInput* ptr_analog_input);
+void ETMAnalogScaleCalibrateDACSetting(AnalogOutput* ptr_analog_output);
+void ETMAnalogScaleCalibrateADCReading(AnalogInput* ptr_analog_input);
+
+void ETMAnalogSetOutput(AnalogOutput* ptr_analog_output, unsigned int new_set_point);
 
 
+unsigned int ETMAnalogCheckOverAbsolute(AnalogInput* ptr_analog_input);
+unsigned int ETMAnalogCheckUnderAbsolute(AnalogInput* ptr_analog_input);
+unsigned int ETMAnalogCheckOverRelative(AnalogInput* ptr_analog_input);
+unsigned int ETMAnalogCheckUnderRelative(AnalogInput* ptr_analog_input);
 
 
 
