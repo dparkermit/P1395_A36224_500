@@ -86,7 +86,9 @@ unsigned int ETMAnalogCheckOverRelative(AnalogInput* ptr_analog_input) {
   }
   
   if (ptr_analog_input->over_trip_counter >= ptr_analog_input->relative_counter_fault_limit) {
-    ptr_analog_input->over_trip_counter = ptr_analog_input->relative_counter_fault_limit;
+    if (ptr_analog_input->over_trip_counter >= (ptr_analog_input->relative_counter_fault_limit * 2)) {
+      ptr_analog_input->over_trip_counter = ptr_analog_input->relative_counter_fault_limit * 2;
+    }
     return 1;
   } else {
     return 0;
@@ -118,7 +120,9 @@ unsigned int ETMAnalogCheckUnderRelative(AnalogInput* ptr_analog_input) {
   }
   
   if (ptr_analog_input->under_trip_counter >= ptr_analog_input->relative_counter_fault_limit) {
-    ptr_analog_input->under_trip_counter = ptr_analog_input->relative_counter_fault_limit;
+    if (ptr_analog_input->under_trip_counter >= (ptr_analog_input->relative_counter_fault_limit * 2)) {
+      ptr_analog_input->under_trip_counter = ptr_analog_input->relative_counter_fault_limit * 2;
+    }
     return 1;
   } else {
     return 0;

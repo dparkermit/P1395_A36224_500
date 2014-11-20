@@ -287,7 +287,7 @@ void InitializeA36224(void) {
 
   // Initialize the Analog Input * Output Scaling
   // Dparker need to read from EEPROM
-  
+  // DPARKER use the new analog commands and new data from the spreadsheet
 
   global_data_A36224_500.analog_output_electromagnet_current.fixed_scale                     = MACRO_DEC_TO_SCALE_FACTOR_16(1.6);
   global_data_A36224_500.analog_output_electromagnet_current.fixed_offset                    = 0;
@@ -347,12 +347,15 @@ void InitializeA36224(void) {
   global_data_A36224_500.analog_input_heater_voltage.calibration_external_offset             = 0;
 
     
+#define A36224_500_INHIBIT_MASK        0b0000000100000100
+#define A36224_500_FAULT_MASK          0b0001111111111111
+
   etm_can_status_register.status_word_0 = 0x0000;
   etm_can_status_register.status_word_1 = 0x0000;
   etm_can_status_register.data_word_A = 0x0000;
   etm_can_status_register.data_word_B = 0x0000; 
-  etm_can_status_register.status_word_0_inhbit_mask = 0b0000000100000100;  // DPARKER move this to #define somewhere
-  etm_can_status_register.status_word_1_fault_mask  = 0b0001111111111111;  // DParker move this to #define somewhere
+  etm_can_status_register.status_word_0_inhbit_mask = A36224_500_INHIBIT_MASK;
+  etm_can_status_register.status_word_1_fault_mask  = A36224_500_FAULT_MASK;
 
 
   global_data_A36224_500.analog_output_electromagnet_current.set_point = 0;
