@@ -81,7 +81,7 @@ void ETMCanCheckForTimeOut(void) {
   if (_T3IF) {
     _T3IF = 0;
     etm_can_can_status.can_status_timeout++;
-    etm_can_status_register.status_word_1 |= FAULT_BIT_CAN_BUS_TIMEOUT;
+    ETMCanSetBit(&etm_can_status_register.status_word_1,FAULT_BIT_CAN_BUS_TIMEOUT);
   }
 }
 

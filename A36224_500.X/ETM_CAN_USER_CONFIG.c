@@ -10,6 +10,8 @@
 #endif
 
 
+unsigned int global_reset_faults;
+
 void ETMCanSetValueBoardSpecific(ETMCanMessage* message_ptr) {
   unsigned int index_word;
   index_word = message_ptr->word3;
@@ -108,6 +110,7 @@ void ETMCanReturnValueBoardSpecific(ETMCanMessage* message_ptr) {
 
 void ETMCanResetFaults(void) {
   // Reset faults associated with this board
+  global_reset_faults = 1;
 }
 
 

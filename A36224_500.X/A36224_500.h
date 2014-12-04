@@ -92,6 +92,7 @@
 #define STATUS_BIT_READBACK_HEATER_OV_STATUS       STATUS_BIT_USER_DEFINED_11
 #define STATUS_BIT_READBACK_RELAY_STATUS           STATUS_BIT_USER_DEFINED_12
 #define STATUS_BIT_READBACK_TEMPERATURE_STATUS     STATUS_BIT_USER_DEFINED_13
+#define STATUS_BIT_HW_TEMPERATURE_SWITCH           STATUS_BIT_USER_DEFINED_14
 
 
 // -------------------- A36224_500 FAULTS/WARNINGS CONFIGURATION-------------------- //
@@ -108,8 +109,8 @@
 #define FAULT_BIT_MAGNET_UNDER_CUR_RELATIVE        FAULT_BIT_USER_DEFINED_10
 #define FAULT_BIT_MAGNET_OVER_VOL_ABSOLUTE         FAULT_BIT_USER_DEFINED_11
 #define FAULT_BIT_MAGNET_UNDER_VOL_RELATIVE        FAULT_BIT_USER_DEFINED_12
-#define FAULT_BIT_HW_TEMPERATURE_SWITCH            FAULT_BIT_USER_DEFINED_13
 #define FAULT_BIT_HW_HEATER_OVER_VOLTAGE           FAULT_BIT_USER_DEFINED_14
+
 
 
 
@@ -197,15 +198,17 @@
 #define PIN_D_IN_0_ELECTROMAGENT_STATUS            _RB12        
 #define PIN_D_IN_1_HEATER_STATUS                   _RB13
 #define PIN_D_IN_2_UNUSED                          _RB14
-#define PIN_D_IN_3_RELAY_STATUS                    _RB15
-#define PIN_D_IN_4_HEATER_OVER_VOLT_STATUS         _RA12
-#define PIN_D_IN_5_TEMPERATURE_STATUS              _RA14   
+#define PIN_D_IN_3_HEATER_OVER_VOLT_STATUS         _RB15
+#define PIN_D_IN_4_TEMPERATURE_STATUS              _RA12   
+#define PIN_D_IN_5_RELAY_STATUS                    _RA15
+
+
 #define PIN_OPTICAL_IN_UNUSED                      _RF3
 
 #define ILL_POWER_SUPPLY_DISABLED                  1
 #define ILL_RELAY_OPEN                             1
-#define ILL_HEATER_OV                              0
-#define ILL_TEMP_SWITCH_FAULT                      0
+#define ILL_HEATER_OV                              1
+#define ILL_TEMP_SWITCH_FAULT                      1
 
 
 // ------- Digital Output Pins ---------//
