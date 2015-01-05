@@ -250,10 +250,39 @@ typedef struct {
 
   unsigned int  adc_ignore_current_sample;
 
+  unsigned int startup_count;
+  unsigned int fault_active;
+  unsigned int power_up_test_timer;
+
 } HeaterMagnetControlData;
 
 extern HeaterMagnetControlData global_data_A36224_500;
 
+
+#define _STATUS_MAGNET_OFF_READBACK                     _STATUS_0
+#define _STATUS_HEATER_OFF_READBACK                     _STATUS_1
+#define _STATUS_OUTPUT_RELAY_OPEN                       _STATUS_2
+
+
+
+#define _FAULT_HEATER_OVER_CURRENT_ABSOLUTE             _FAULT_0
+#define _FAULT_HEATER_UNDER_CURRENT_ABSOLUTE            _FAULT_1
+#define _FAULT_HEATER_OVER_CURRENT_RELATIVE             _FAULT_2
+#define _FAULT_HEATER_UNDER_CURRENT_RELATIVE            _FAULT_3
+#define _FAULT_HEATER_OVER_VOLTAGE_ABSOLUTE             _FAULT_4
+#define _FAULT_HEATER_UNDER_VOLTAGE_RELATIVE            _FAULT_5
+
+
+#define _FAULT_MAGNET_OVER_CURRENT_ABSOLUTE             _FAULT_6
+#define _FAULT_MAGNET_UNDER_CURRENT_ABSOLUTE            _FAULT_7
+#define _FAULT_MAGNET_OVER_CURRENT_RELATIVE             _FAULT_8
+#define _FAULT_MAGNET_UNDER_CURRENT_RELATIVE            _FAULT_9
+#define _FAULT_MAGNET_OVER_VOLTAGE_ABSOLUTE             _FAULT_A
+#define _FAULT_MAGNET_UNDER_VOLTAGE_RELATIVE            _FAULT_B
+
+#define _FAULT_HW_HEATER_OVER_VOLTAGE                   _FAULT_C
+#define _FAULT_HW_TEMPERATURE_SWITCH                    _FAULT_D
+#define _FAULT_COOLANT_FAULT                            _FAULT_E
 
 
 #endif

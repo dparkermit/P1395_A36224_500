@@ -1,9 +1,11 @@
 #include "A36224_500.h"
 #include "A36224_500_SETTINGS.h"
 #include "MCP4822.h"
+#include "FIRMWARE_VERSION.h"
 
 _FOSC(ECIO & CSW_FSCM_OFF); 
-_FWDT(WDT_ON & WDTPSA_64 & WDTPSB_8);  // 1 Second watchdog timer 
+//_FWDT(WDT_ON & WDTPSA_64 & WDTPSB_8);  // 1 Second watchdog timer 
+_FWDT(WDT_ON & WDTPSA_512 & WDTPSB_8);  // 8 Second watchdog timer 
 _FBORPOR(PWRT_OFF & BORV_45 & PBOR_OFF & MCLR_EN);
 _FBS(WR_PROTECT_BOOT_OFF & NO_BOOT_CODE & NO_BOOT_EEPROM & NO_BOOT_RAM);
 _FSS(WR_PROT_SEC_OFF & NO_SEC_CODE & NO_SEC_EEPROM & NO_SEC_RAM);
@@ -19,7 +21,7 @@ void EnableHeaterMagnetOutputs(void);
 
 
 void InitializeA36224(void);
-void DoA36225_500(void);
+void DoA36224_500(void);
 void DoStateMachine(void);
 
 MCP4822 U42_MCP4822;
@@ -34,9 +36,10 @@ unsigned int control_state;
 
 #define STATE_STARTUP                0x10
 #define STATE_WAITING_FOR_CONFIG     0x20
-#define STATE_STANDBY                0x30
+#define STATE_POWER_UP_TEST          0x30
 #define STATE_OPERATE                0x40
 #define STATE_FAULT                  0x50
+#define STATE_FAULT_NO_RECOVERY      0x60
 
 int main(void) {
 
@@ -52,63 +55,69 @@ int main(void) {
 
 
 
+#define TIME_POWER_UP_TEST     1000 // 10 seconds
+#define MAX_RESET_ATTEMPTS          5
+
 void DoStateMachine(void) {
 
   switch (control_state) {
     
   case STATE_STARTUP:
     InitializeA36224();
+    _CONTROL_STATE_NOT_OPERATE = 1;
+    _CONTROL_NOT_CONFIGURED = 1;
+    global_data_A36224_500.startup_count = 0;
     control_state = STATE_WAITING_FOR_CONFIG;
     break;
 
     
   case STATE_WAITING_FOR_CONFIG:
-    ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG);
-    ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE);
+    _CONTROL_STATE_NOT_OPERATE = 1;
     DisableHeaterMagnetOutputs();
     while (control_state == STATE_WAITING_FOR_CONFIG) {
-      DoA36225_500();
+      DoA36224_500();
       ETMCanDoCan();
-      
-      if (!ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_BOARD_WAITING_INITIAL_CONFIG)) {
-	control_state = STATE_STANDBY;
-      }
-      
-      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
-	control_state = STATE_FAULT;
+    
+      if (_CONTROL_NOT_CONFIGURED == 0) {
+	control_state = STATE_POWER_UP_TEST;
       }
     }
     break;
 
-
-  case STATE_STANDBY:
-    DisableHeaterMagnetOutputs();
-    while (control_state == STATE_STANDBY) {
-      DoA36225_500();
+    
+  case STATE_POWER_UP_TEST:
+    global_data_A36224_500.startup_count++;
+    _CONTROL_STATE_NOT_OPERATE = 1;
+    global_data_A36224_500.power_up_test_timer = 0;
+    EnableHeaterMagnetOutputs();
+    while (control_state == STATE_POWER_UP_TEST) {
+      DoA36224_500();
       ETMCanDoCan();
-      
-      if (!ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
+  
+      if (global_data_A36224_500.power_up_test_timer >= TIME_POWER_UP_TEST) {
 	control_state = STATE_OPERATE;
       }
       
-      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
-	control_state = STATE_FAULT;
+      if (global_data_A36224_500.fault_active) {
+	if (global_data_A36224_500.startup_count <= MAX_RESET_ATTEMPTS){
+	  control_state = STATE_FAULT;
+	} else {
+	  control_state = STATE_FAULT_NO_RECOVERY;
+	}
       }
     }
     break;
 
 
   case STATE_OPERATE:
-    EnableHeaterMagnetOutputs();
+    global_data_A36224_500.startup_count = 0;
+    _CONTROL_STATE_NOT_OPERATE = 0;
+    _FAULT_REGISTER = 0;
     while (control_state == STATE_OPERATE) {
-      DoA36225_500();
+      DoA36224_500();
       ETMCanDoCan();
-
-      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SOFTWARE_DISABLE)) {
-	control_state = STATE_STANDBY;
-      }
       
-      if (ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
+      if (global_data_A36224_500.fault_active) {
 	control_state = STATE_FAULT;
       }
     }
@@ -117,19 +126,26 @@ void DoStateMachine(void) {
 
   case STATE_FAULT:
     DisableHeaterMagnetOutputs();
+    _CONTROL_STATE_NOT_OPERATE = 1;
     while (control_state == STATE_FAULT) {
-      DoA36225_500();
+      DoA36224_500();
       ETMCanDoCan();
-      if (!ETMCanCheckBit(etm_can_status_register.status_word_0, STATUS_BIT_SUM_FAULT)) {
-	// The faults have been cleared
+      if (!global_data_A36224_500.fault_active) {
 	control_state = STATE_WAITING_FOR_CONFIG;
       }
     }
     break;
     
+  case STATE_FAULT_NO_RECOVERY:
+    DisableHeaterMagnetOutputs();
+    _CONTROL_STATE_NOT_OPERATE = 1;
+    while (control_state == STATE_FAULT_NO_RECOVERY) {
+      DoA36224_500();
+      ETMCanDoCan();
+    }
     
   default:
-    control_state = STATE_FAULT;
+    control_state = STATE_FAULT_NO_RECOVERY;
     break;
     
   }
@@ -159,17 +175,32 @@ void EnableHeaterMagnetOutputs(void) {
 
 
 
-void DoA36225_500(void) {
+void DoA36224_500(void) {
 
   // Check the status of these pins every time through the loop
   if (PIN_D_IN_3_HEATER_OVER_VOLT_STATUS == ILL_HEATER_OV) {
-    ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HW_HEATER_OVER_VOLTAGE);
+    _FAULT_HW_HEATER_OVER_VOLTAGE = 1;
+    global_data_A36224_500.fault_active = 1;
   }
+  
+  if (PIN_D_IN_4_TEMPERATURE_STATUS == ILL_TEMP_SWITCH_FAULT) {
+    _FAULT_HW_TEMPERATURE_SWITCH = 1;
+    global_data_A36224_500.fault_active = 1;
+  }
+  
 
   if (_T5IF) {
+    local_debug_data.debug_0 = global_data_A36224_500.startup_count;
+    local_debug_data.debug_1 = global_data_A36224_500.fault_active;
+    local_debug_data.debug_2 = global_data_A36224_500.power_up_test_timer;
+    local_debug_data.debug_2 = control_state;
+      
+
     // 10ms Timer has expired so this code will executre once every 10ms
     _T5IF = 0;
     
+
+    global_data_A36224_500.power_up_test_timer++;
     // Flash the operate LED
     led_divider++;
     if (led_divider >= 50) {
@@ -182,10 +213,10 @@ void DoA36225_500(void) {
     }
 
     // Update the error counters that get returned
-    etm_can_system_debug_data.i2c_bus_error_count = 0;  // There are no I2C devices on this board
-    etm_can_system_debug_data.spi_bus_error_count = etm_spi1_error_count + etm_spi2_error_count;
-    etm_can_system_debug_data.scale_error_count = etm_scale_saturation_etmscalefactor2_count + etm_scale_saturation_etmscalefactor16_count;
-    etm_can_system_debug_data.self_test_result_register = 0; // DPARKER NEED TO WORK ON THE SELF TEST
+    local_debug_data.i2c_bus_error_count = 0;  // There are no I2C devices on this board
+    local_debug_data.spi_bus_error_count = etm_spi1_error_count + etm_spi2_error_count;
+    local_debug_data.scale_error_count = etm_scale_saturation_etmscalefactor2_count + etm_scale_saturation_etmscalefactor16_count;
+    local_debug_data.self_test_result_register = 0; // DPARKER NEED TO WORK ON THE SELF TEST
     
     /*
       The following are updated by the ETM_CAN module
@@ -193,9 +224,10 @@ void DoA36225_500(void) {
       reset_count
     */
 
-
+    
+    // DPARKER FIX THIS
     // Set the fault LED
-    if (etm_can_status_register.status_word_0 & 0x0003) {
+    if (_CONTROL_NOT_READY) {
       // The board is faulted or inhibiting the system
       PIN_LED_I2_C = 0;
     } else {
@@ -204,28 +236,21 @@ void DoA36225_500(void) {
 
     // Update the digital input status pins
     if (PIN_D_IN_0_ELECTROMAGENT_STATUS == ILL_POWER_SUPPLY_DISABLED) {
-      ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_ELECTROMAGNET_STATUS);
+      _STATUS_MAGNET_OFF_READBACK = 1;
     } else {
-      ETMCanClearBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_ELECTROMAGNET_STATUS);
-    }
-  
-    if (PIN_D_IN_4_TEMPERATURE_STATUS == ILL_TEMP_SWITCH_FAULT) {
-      ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_HW_TEMPERATURE_SWITCH);
-    } else {
-      ETMCanClearBit(&etm_can_status_register.status_word_0, STATUS_BIT_HW_TEMPERATURE_SWITCH);
+      _STATUS_MAGNET_OFF_READBACK = 0;
     }
 
-  
     if (PIN_D_IN_1_HEATER_STATUS == ILL_POWER_SUPPLY_DISABLED) {
-      ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_HEATER_STATUS);
+      _STATUS_HEATER_OFF_READBACK = 1;
     } else {
-      ETMCanClearBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_HEATER_STATUS);
+      _STATUS_HEATER_OFF_READBACK = 0;
     }
     
     if (PIN_D_IN_5_RELAY_STATUS == ILL_RELAY_OPEN) {
-      ETMCanSetBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_RELAY_STATUS);
+      _STATUS_OUTPUT_RELAY_OPEN = 1;
     } else {
-      ETMCanClearBit(&etm_can_status_register.status_word_0, STATUS_BIT_READBACK_RELAY_STATUS);
+      _STATUS_OUTPUT_RELAY_OPEN = 0;
     }
     
     // Flash the Refresh
@@ -245,19 +270,90 @@ void DoA36225_500(void) {
 
 // -------------------- CHECK FOR FAULTS ------------------- //
 
-    if (global_reset_faults) {
-      etm_can_system_debug_data.debug_0++;
-      etm_can_status_register.status_word_1 = 0x0000;
-      global_reset_faults = 0;
+    global_data_A36224_500.fault_active = 0;
+    
+    // Check the status of these pins every time through the loop
+    if (PIN_D_IN_3_HEATER_OVER_VOLT_STATUS == ILL_HEATER_OV) {
+      _FAULT_HW_HEATER_OVER_VOLTAGE = 1;
+      global_data_A36224_500.fault_active = 1;
+    }
+    
+    if (PIN_D_IN_4_TEMPERATURE_STATUS == ILL_TEMP_SWITCH_FAULT) {
+      _FAULT_HW_TEMPERATURE_SWITCH = 1;
+      global_data_A36224_500.fault_active = 1;
+    }
+    
+    // DPARKER check SYNC message for coolant flow and fault if there is a problem
+    if (0) {
+      _FAULT_COOLANT_FAULT = 1;
+      global_data_A36224_500.fault_active = 1;
+    } else {
+      if (global_reset_faults) {
+	_FAULT_COOLANT_FAULT = 0;
+      }
     }
 
+    if (_CONTROL_CAN_FAULT) {
+      global_data_A36224_500.fault_active = 1;
+    }
 
-
-    if (control_state == STATE_OPERATE) {
+    if ((control_state == STATE_OPERATE) || (control_state == STATE_POWER_UP_TEST)) {
       global_data_A36224_500.analog_input_electromagnet_current.target_value = global_data_A36224_500.analog_output_electromagnet_current.set_point;
       global_data_A36224_500.analog_input_electromagnet_voltage.target_value = ETMScaleFactor16(global_data_A36224_500.analog_output_electromagnet_current.set_point,MACRO_DEC_TO_SCALE_FACTOR_16(NOMINAL_ELECTROMAGNET_RESISTANCE),0);
       global_data_A36224_500.analog_input_heater_current.target_value = global_data_A36224_500.analog_output_heater_current.set_point;
       global_data_A36224_500.analog_input_heater_voltage.target_value = ETMScaleFactor16(global_data_A36224_500.analog_output_heater_current.set_point,MACRO_DEC_TO_SCALE_FACTOR_16(NOMINAL_HEATER_RESISTANCE),0);
+      
+      if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_heater_current)) {
+	_FAULT_HEATER_OVER_CURRENT_ABSOLUTE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckUnderAbsolute(&global_data_A36224_500.analog_input_heater_current)) {
+	_FAULT_HEATER_UNDER_CURRENT_ABSOLUTE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckOverRelative(&global_data_A36224_500.analog_input_heater_current)) {
+	_FAULT_HEATER_OVER_CURRENT_RELATIVE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_heater_current)) {
+	_FAULT_HEATER_UNDER_CURRENT_RELATIVE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_heater_voltage)) {
+	_FAULT_HEATER_OVER_VOLTAGE_ABSOLUTE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_heater_voltage)) {
+	_FAULT_HEATER_UNDER_VOLTAGE_RELATIVE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      
+      
+      if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_electromagnet_current)) {
+	_FAULT_MAGNET_OVER_CURRENT_ABSOLUTE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckUnderAbsolute(&global_data_A36224_500.analog_input_electromagnet_current)) {
+	_FAULT_MAGNET_UNDER_CURRENT_ABSOLUTE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckOverRelative(&global_data_A36224_500.analog_input_electromagnet_current)) {
+	_FAULT_MAGNET_OVER_CURRENT_RELATIVE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_electromagnet_current)) {
+	_FAULT_MAGNET_UNDER_CURRENT_RELATIVE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_electromagnet_voltage)) {
+	_FAULT_MAGNET_OVER_VOLTAGE_ABSOLUTE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_electromagnet_voltage)) {
+	_FAULT_MAGNET_UNDER_VOLTAGE_RELATIVE = 1;
+	global_data_A36224_500.fault_active = 1;
+      }
+      
     } else {
       global_data_A36224_500.analog_input_electromagnet_current.target_value = 0;
       global_data_A36224_500.analog_input_electromagnet_voltage.target_value = 0;
@@ -265,50 +361,12 @@ void DoA36225_500(void) {
       global_data_A36224_500.analog_input_heater_voltage.target_value = 0;
     }
 
-
-    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_heater_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_OVER_CUR_ABSOLUTE);
-    }
-    if (ETMAnalogCheckUnderAbsolute(&global_data_A36224_500.analog_input_heater_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_UNDER_CUR_ABSOLUTE);
-    }
-    if (ETMAnalogCheckOverRelative(&global_data_A36224_500.analog_input_heater_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_OVER_CUR_RELATIVE);
-    }
-    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_heater_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_UNDER_CUR_RELATIVE);
-    }
-    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_heater_voltage)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_OVER_VOL_ABSOLUTE);
-    }
-    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_heater_voltage)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_HEATER_UNDER_VOL_RELATIVE);
-    }
     
-    
-    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_electromagnet_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_OVER_CUR_ABSOLUTE);
-    }
-    if (ETMAnalogCheckUnderAbsolute(&global_data_A36224_500.analog_input_electromagnet_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_UNDER_CUR_ABSOLUTE);
-    }
-    if (ETMAnalogCheckOverRelative(&global_data_A36224_500.analog_input_electromagnet_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_OVER_CUR_RELATIVE); 
-    }
-    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_electromagnet_current)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_UNDER_CUR_RELATIVE); 
-    }
-    if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_electromagnet_voltage)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_OVER_VOL_ABSOLUTE); 
-    }
-    if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_electromagnet_voltage)) {
-      ETMCanSetBit(&etm_can_status_register.status_word_1, FAULT_BIT_MAGNET_UNDER_VOL_RELATIVE);
-    }
     
 
 
     // Set DAC outputs
-    if (control_state == STATE_OPERATE) {
+    if ((control_state == STATE_OPERATE) || (control_state == STATE_POWER_UP_TEST)) {
       ETMAnalogScaleCalibrateDACSetting(&global_data_A36224_500.analog_output_heater_current);
       WriteMCP4822(&U42_MCP4822, MCP4822_OUTPUT_A_4096, global_data_A36224_500.analog_output_electromagnet_current.dac_setting_scaled_and_calibrated>>4);
       
@@ -322,6 +380,13 @@ void DoA36225_500(void) {
 }
 
 void InitializeA36224(void) {
+
+  etm_can_my_configuration.firmware_major_rev = FIRMWARE_AGILE_REV;
+  etm_can_my_configuration.firmware_branch    = FIRMWARE_BRANCH;
+  etm_can_my_configuration.firmware_minor_rev = FIRMWARE_MINOR_REV;
+  
+
+
 
   // Initialize the Analog Input * Output Scaling
   // Dparker need to read from EEPROM
@@ -347,12 +412,12 @@ void InitializeA36224(void) {
 			   HEATER_VOLTAGE_OVER_TRIP, HEATER_VOLTAGE_UNDER_TRIP, HEATER_VOLTAGE_RELATIVE_FLOOR, HEATER_VOLTAGE_RELATIVE_FLOOR, 
 			   HEATER_VOLTAGE_TRIP_TIME);
 
-  etm_can_status_register.status_word_0 = 0x0000;
-  etm_can_status_register.status_word_1 = 0x0000;
+  _FAULT_REGISTER = 0;
+  _CONTROL_REGISTER = 0;
   etm_can_status_register.data_word_A = 0x0000;
   etm_can_status_register.data_word_B = 0x0000; 
-  etm_can_status_register.status_word_0_inhbit_mask = A36224_500_INHIBIT_MASK;
-  etm_can_status_register.status_word_1_fault_mask  = A36224_500_FAULT_MASK;
+  etm_can_status_register.unused_A = 0;
+  etm_can_status_register.unused_B = 0;
 
 
   global_data_A36224_500.analog_output_electromagnet_current.set_point = 0;
@@ -487,25 +552,6 @@ void __attribute__((interrupt, no_auto_psv)) _ADCInterrupt(void) {
       global_data_A36224_500.analog_input_heater_voltage.adc_accumulator        += ADCBUFB + ADCBUFF;
     }
     
-    //etm_can_system_debug_data.debug_0 = ADCBUF0;
-    etm_can_system_debug_data.debug_1 = ADCBUF1;
-    etm_can_system_debug_data.debug_2 = ADCBUF2;
-    etm_can_system_debug_data.debug_3 = ADCBUF3;
-    etm_can_system_debug_data.debug_4 = ADCBUF4;
-    etm_can_system_debug_data.debug_5 = ADCBUF5;
-    etm_can_system_debug_data.debug_6 = ADCBUF6;
-    etm_can_system_debug_data.debug_7 = ADCBUF7;
-    etm_can_system_debug_data.debug_8 = ADCBUF8;
-    etm_can_system_debug_data.debug_9 = ADCBUF9;
-    etm_can_system_debug_data.debug_A = ADCBUFA;
-    etm_can_system_debug_data.debug_B = ADCBUFB;
-    etm_can_system_debug_data.debug_C = ADCBUFC;
-    etm_can_system_debug_data.debug_D = ADCBUFD;
-    etm_can_system_debug_data.debug_E = ADCBUFE;
-    etm_can_system_debug_data.debug_F = ADCBUFF;
-
-
-
     global_data_A36224_500.accumulator_counter += 2;
     
     if (global_data_A36224_500.accumulator_counter >= 256) {
