@@ -262,7 +262,7 @@ extern HeaterMagnetControlData global_data_A36224_500;
 #define _STATUS_MAGNET_OFF_READBACK                     _STATUS_0
 #define _STATUS_HEATER_OFF_READBACK                     _STATUS_1
 #define _STATUS_OUTPUT_RELAY_OPEN                       _STATUS_2
-
+#define _STATUS_PERMA_FAULTED                           _STATUS_3
 
 
 #define _FAULT_HEATER_OVER_CURRENT_ABSOLUTE             _FAULT_0
@@ -283,6 +283,6 @@ extern HeaterMagnetControlData global_data_A36224_500;
 #define _FAULT_HW_HEATER_OVER_VOLTAGE                   _FAULT_C
 #define _FAULT_HW_TEMPERATURE_SWITCH                    _FAULT_D
 #define _FAULT_COOLANT_FAULT                            _FAULT_E
-
+#define _FAULT_CAN_COMMUNICATION_LATCHED                _FAULT_F
 
 #endif

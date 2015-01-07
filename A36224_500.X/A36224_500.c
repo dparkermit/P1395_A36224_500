@@ -64,7 +64,7 @@ void DoStateMachine(void) {
     
   case STATE_STARTUP:
     InitializeA36224();
-    _CONTROL_STATE_NOT_OPERATE = 1;
+    _CONTROL_NOT_READY = 1;
     _CONTROL_NOT_CONFIGURED = 1;
     global_data_A36224_500.startup_count = 0;
     control_state = STATE_WAITING_FOR_CONFIG;
@@ -72,7 +72,7 @@ void DoStateMachine(void) {
 
     
   case STATE_WAITING_FOR_CONFIG:
-    _CONTROL_STATE_NOT_OPERATE = 1;
+    _CONTROL_NOT_READY = 1;
     DisableHeaterMagnetOutputs();
     while (control_state == STATE_WAITING_FOR_CONFIG) {
       DoA36224_500();
@@ -87,7 +87,7 @@ void DoStateMachine(void) {
     
   case STATE_POWER_UP_TEST:
     global_data_A36224_500.startup_count++;
-    _CONTROL_STATE_NOT_OPERATE = 1;
+    _CONTROL_NOT_READY = 1;
     global_data_A36224_500.power_up_test_timer = 0;
     EnableHeaterMagnetOutputs();
     while (control_state == STATE_POWER_UP_TEST) {
@@ -95,7 +95,13 @@ void DoStateMachine(void) {
       ETMCanDoCan();
   
       if (global_data_A36224_500.power_up_test_timer >= TIME_POWER_UP_TEST) {
-	control_state = STATE_OPERATE;
+	// We passed the warmup time without a fault, clear the startup counter
+	global_data_A36224_500.startup_count = 0;
+	global_data_A36224_500.power_up_test_timer = TIME_POWER_UP_TEST;
+	// We can moce to the operate sate if there are no latched faults or if the reset is active
+	if ((_FAULT_REGISTER == 0) || (_SYNC_CONTROL_RESET_ENABLE)) {
+	  control_state = STATE_OPERATE;
+	}
       }
       
       if (global_data_A36224_500.fault_active) {
@@ -110,8 +116,7 @@ void DoStateMachine(void) {
 
 
   case STATE_OPERATE:
-    global_data_A36224_500.startup_count = 0;
-    _CONTROL_STATE_NOT_OPERATE = 0;
+    _CONTROL_NOT_READY = 0;
     _FAULT_REGISTER = 0;
     while (control_state == STATE_OPERATE) {
       DoA36224_500();
@@ -126,7 +131,7 @@ void DoStateMachine(void) {
 
   case STATE_FAULT:
     DisableHeaterMagnetOutputs();
-    _CONTROL_STATE_NOT_OPERATE = 1;
+    _CONTROL_NOT_READY = 1;
     while (control_state == STATE_FAULT) {
       DoA36224_500();
       ETMCanDoCan();
@@ -138,7 +143,8 @@ void DoStateMachine(void) {
     
   case STATE_FAULT_NO_RECOVERY:
     DisableHeaterMagnetOutputs();
-    _CONTROL_STATE_NOT_OPERATE = 1;
+    _CONTROL_NOT_READY = 1;
+    _STATUS_PERMA_FAULTED = 1;
     while (control_state == STATE_FAULT_NO_RECOVERY) {
       DoA36224_500();
       ETMCanDoCan();
@@ -190,17 +196,20 @@ void DoA36224_500(void) {
   
 
   if (_T5IF) {
+    // 10ms Timer has expired so this code will executre once every 10ms
+    _T5IF = 0;
+
+
     local_debug_data.debug_0 = global_data_A36224_500.startup_count;
     local_debug_data.debug_1 = global_data_A36224_500.fault_active;
     local_debug_data.debug_2 = global_data_A36224_500.power_up_test_timer;
-    local_debug_data.debug_2 = control_state;
-      
+    local_debug_data.debug_3 = control_state;
+    local_debug_data.debug_4 = _SYNC_CONTROL_WORD;
 
-    // 10ms Timer has expired so this code will executre once every 10ms
-    _T5IF = 0;
     
-
-    global_data_A36224_500.power_up_test_timer++;
+    if (control_state == STATE_POWER_UP_TEST) {
+      global_data_A36224_500.power_up_test_timer++;
+    }
     // Flash the operate LED
     led_divider++;
     if (led_divider >= 50) {
@@ -225,7 +234,6 @@ void DoA36224_500(void) {
     */
 
     
-    // DPARKER FIX THIS
     // Set the fault LED
     if (_CONTROL_NOT_READY) {
       // The board is faulted or inhibiting the system
@@ -272,7 +280,6 @@ void DoA36224_500(void) {
 
     global_data_A36224_500.fault_active = 0;
     
-    // Check the status of these pins every time through the loop
     if (PIN_D_IN_3_HEATER_OVER_VOLT_STATUS == ILL_HEATER_OV) {
       _FAULT_HW_HEATER_OVER_VOLTAGE = 1;
       global_data_A36224_500.fault_active = 1;
@@ -282,18 +289,19 @@ void DoA36224_500(void) {
       _FAULT_HW_TEMPERATURE_SWITCH = 1;
       global_data_A36224_500.fault_active = 1;
     }
-    
+
     // DPARKER check SYNC message for coolant flow and fault if there is a problem
-    if (0) {
+    if (_SYNC_CONTROL_COOLING_FAULT) {
       _FAULT_COOLANT_FAULT = 1;
       global_data_A36224_500.fault_active = 1;
     } else {
-      if (global_reset_faults) {
+      if (_SYNC_CONTROL_RESET_ENABLE) {
 	_FAULT_COOLANT_FAULT = 0;
       }
     }
 
-    if (_CONTROL_CAN_FAULT) {
+    if (_CONTROL_CAN_COM_LOSS) {
+      _FAULT_CAN_COMMUNICATION_LATCHED = 1;
       global_data_A36224_500.fault_active = 1;
     }
 
