@@ -76,7 +76,6 @@ void DoStateMachine(void) {
     DisableHeaterMagnetOutputs();
     while (control_state == STATE_WAITING_FOR_CONFIG) {
       DoA36224_500();
-      ETMCanDoCan();
     
       if (_CONTROL_NOT_CONFIGURED == 0) {
 	control_state = STATE_POWER_UP_TEST;
@@ -92,7 +91,6 @@ void DoStateMachine(void) {
     EnableHeaterMagnetOutputs();
     while (control_state == STATE_POWER_UP_TEST) {
       DoA36224_500();
-      ETMCanDoCan();
   
       if (global_data_A36224_500.power_up_test_timer >= TIME_POWER_UP_TEST) {
 	// We passed the warmup time without a fault, clear the startup counter
@@ -120,7 +118,6 @@ void DoStateMachine(void) {
     _FAULT_REGISTER = 0;
     while (control_state == STATE_OPERATE) {
       DoA36224_500();
-      ETMCanDoCan();
       
       if (global_data_A36224_500.fault_active) {
 	control_state = STATE_FAULT;
@@ -134,7 +131,7 @@ void DoStateMachine(void) {
     _CONTROL_NOT_READY = 1;
     while (control_state == STATE_FAULT) {
       DoA36224_500();
-      ETMCanDoCan();
+
       if (!global_data_A36224_500.fault_active) {
 	control_state = STATE_WAITING_FOR_CONFIG;
       }
@@ -147,7 +144,6 @@ void DoStateMachine(void) {
     _STATUS_PERMA_FAULTED = 1;
     while (control_state == STATE_FAULT_NO_RECOVERY) {
       DoA36224_500();
-      ETMCanDoCan();
     }
     
   default:
@@ -182,6 +178,8 @@ void EnableHeaterMagnetOutputs(void) {
 
 
 void DoA36224_500(void) {
+
+  ETMCanSlaveDoCan();
 
   // Check the status of these pins every time through the loop
   if (PIN_D_IN_3_HEATER_OVER_VOLT_STATUS == ILL_HEATER_OV) {
@@ -225,7 +223,6 @@ void DoA36224_500(void) {
     local_debug_data.i2c_bus_error_count = 0;  // There are no I2C devices on this board
     local_debug_data.spi_bus_error_count = etm_spi1_error_count + etm_spi2_error_count;
     local_debug_data.scale_error_count = etm_scale_saturation_etmscalefactor2_count + etm_scale_saturation_etmscalefactor16_count;
-    local_debug_data.self_test_result_register = 0; // DPARKER NEED TO WORK ON THE SELF TEST
     
     /*
       The following are updated by the ETM_CAN module
@@ -331,11 +328,12 @@ void DoA36224_500(void) {
 	_FAULT_HEATER_OVER_VOLTAGE_ABSOLUTE = 1;
 	global_data_A36224_500.fault_active = 1;
       }
+
+      // DPARKER may need to remove this because it trips at startup.  Not sure why . . . need investigate
       if (ETMAnalogCheckUnderRelative(&global_data_A36224_500.analog_input_heater_voltage)) {
 	_FAULT_HEATER_UNDER_VOLTAGE_RELATIVE = 1;
 	global_data_A36224_500.fault_active = 1;
       }
-      
       
       if (ETMAnalogCheckOverAbsolute(&global_data_A36224_500.analog_input_electromagnet_current)) {
 	_FAULT_MAGNET_OVER_CURRENT_ABSOLUTE = 1;
@@ -397,27 +395,60 @@ void InitializeA36224(void) {
 
 
   // Initialize the Analog Input * Output Scaling
-  // Dparker need to read from EEPROM
-  ETMAnalogInitializeOutput(&global_data_A36224_500.analog_output_electromagnet_current, MACRO_DEC_TO_SCALE_FACTOR_16(1.6), OFFSET_ZERO, ANALOG_OUTPUT_NO_CALIBRATION,
-			    ELECTROMAGNET_MAX_IPROG, ELECTROMAGNET_MIN_IPROG, 0);
+  ETMAnalogInitializeOutput(&global_data_A36224_500.analog_output_electromagnet_current,
+			    MACRO_DEC_TO_SCALE_FACTOR_16(1.6),
+			    OFFSET_ZERO,
+			    ANALOG_OUTPUT_0,
+			    ELECTROMAGNET_MAX_IPROG,
+			    ELECTROMAGNET_MIN_IPROG,
+			    0);
 
-  ETMAnalogInitializeOutput(&global_data_A36224_500.analog_output_heater_current, MACRO_DEC_TO_SCALE_FACTOR_16(1.6), OFFSET_ZERO, ANALOG_OUTPUT_NO_CALIBRATION,
-			    HEATER_MAX_IPROG, HEATER_MIN_IPROG, 0);
+  ETMAnalogInitializeOutput(&global_data_A36224_500.analog_output_heater_current,
+			    MACRO_DEC_TO_SCALE_FACTOR_16(1.6),
+			    OFFSET_ZERO,
+			    ANALOG_OUTPUT_1,
+			    HEATER_MAX_IPROG,
+			    HEATER_MIN_IPROG,
+			    0);
   
-  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_electromagnet_current, MACRO_DEC_TO_SCALE_FACTOR_16(.7629), OFFSET_ZERO, ANALOG_INPUT_NO_CALIBRATION,
-			   ELECTROMAGNET_CURRENT_OVER_TRIP, ELECTROMAGNET_CURRENT_UNDER_TRIP, ELECTROMAGNET_CURRENT_RELATIVE_FLOOR, ELECTROMAGNET_CURRENT_RELATIVE_FLOOR, 
+  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_electromagnet_current,
+			   MACRO_DEC_TO_SCALE_FACTOR_16(.7629),
+			   OFFSET_ZERO,
+			   ANALOG_INPUT_8,
+			   ELECTROMAGNET_CURRENT_OVER_TRIP,
+			   ELECTROMAGNET_CURRENT_UNDER_TRIP,
+			   ELECTROMAGNET_CURRENT_RELATIVE_TRIP,
+			   ELECTROMAGNET_CURRENT_RELATIVE_FLOOR,
 			   ELECTROMAGNET_CURRENT_TRIP_TIME);
   
-  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_electromagnet_voltage, MACRO_DEC_TO_SCALE_FACTOR_16(.3834), OFFSET_ZERO, ANALOG_INPUT_NO_CALIBRATION,
-			   ELECTROMAGNET_VOLTAGE_OVER_TRIP, ELECTROMAGNET_VOLTAGE_UNDER_TRIP, ELECTROMAGNET_VOLTAGE_RELATIVE_FLOOR, ELECTROMAGNET_VOLTAGE_RELATIVE_FLOOR, 
+  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_electromagnet_voltage,
+			   MACRO_DEC_TO_SCALE_FACTOR_16(.3834),
+			   OFFSET_ZERO,
+			   ANALOG_INPUT_A,
+			   ELECTROMAGNET_VOLTAGE_OVER_TRIP,
+			   ELECTROMAGNET_VOLTAGE_UNDER_TRIP,
+			   ELECTROMAGNET_VOLTAGE_RELATIVE_TRIP,
+			   ELECTROMAGNET_VOLTAGE_RELATIVE_FLOOR,
 			   ELECTROMAGNET_VOLTAGE_TRIP_TIME);
 
-  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_heater_current, MACRO_DEC_TO_SCALE_FACTOR_16(.7629), OFFSET_ZERO, ANALOG_INPUT_NO_CALIBRATION,
-			   HEATER_CURRENT_OVER_TRIP, HEATER_CURRENT_UNDER_TRIP, HEATER_CURRENT_RELATIVE_FLOOR, HEATER_CURRENT_RELATIVE_FLOOR, 
+  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_heater_current,
+			   MACRO_DEC_TO_SCALE_FACTOR_16(.7629),
+			   OFFSET_ZERO,
+			   ANALOG_INPUT_9,
+			   HEATER_CURRENT_OVER_TRIP,
+			   HEATER_CURRENT_UNDER_TRIP,
+			   HEATER_CURRENT_RELATIVE_TRIP,
+			   HEATER_CURRENT_RELATIVE_FLOOR,
 			   HEATER_CURRENT_TRIP_TIME);
 
-  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_heater_voltage, MACRO_DEC_TO_SCALE_FACTOR_16(.3834), OFFSET_ZERO, ANALOG_INPUT_NO_CALIBRATION,
-			   HEATER_VOLTAGE_OVER_TRIP, HEATER_VOLTAGE_UNDER_TRIP, HEATER_VOLTAGE_RELATIVE_FLOOR, HEATER_VOLTAGE_RELATIVE_FLOOR, 
+  ETMAnalogInitializeInput(&global_data_A36224_500.analog_input_heater_voltage,
+			   MACRO_DEC_TO_SCALE_FACTOR_16(.3834),
+			   OFFSET_ZERO,
+			   ANALOG_INPUT_B,
+			   HEATER_VOLTAGE_OVER_TRIP,
+			   HEATER_VOLTAGE_UNDER_TRIP,
+			   HEATER_VOLTAGE_RELATIVE_TRIP,
+			   HEATER_VOLTAGE_RELATIVE_FLOOR,
 			   HEATER_VOLTAGE_TRIP_TIME);
 
   _FAULT_REGISTER = 0;
@@ -503,7 +534,7 @@ void InitializeA36224(void) {
   SetupMCP4822(&U44_MCP4822);
 
   // Initialize the CAN module
-  ETMCanInitialize();
+  ETMCanSlaveInitialize();
 
 
   // Flash LEDs at boot up

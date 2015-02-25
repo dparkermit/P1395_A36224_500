@@ -6,9 +6,9 @@
 #include <adc12.h>
 #include <timer.h>
 
-#include "ETM_CAN_PUBLIC.h"
+#include "P1395_CAN_SLAVE.h"
 #include "ETM_ANALOG.h"
-
+#include "P1395_MODULE_CONFIG.h"
 
 
 
